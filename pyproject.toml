@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "databricks-claude"
+version = "0.1.0"
+description = "CLI wrapper that proxies Claude Code through Databricks"
+requires-python = ">=3.9"
+dependencies = [
+    "flask>=3.1",
+    "requests>=2.32",
+]
+
+[project.scripts]
+databricks-claude = "databricks_claude.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

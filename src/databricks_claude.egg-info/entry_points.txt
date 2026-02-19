@@ -1,0 +1,2 @@
+[console_scripts]
+databricks-claude = databricks_claude.cli:main
