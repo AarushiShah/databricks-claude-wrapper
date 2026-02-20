@@ -16,6 +16,9 @@ databricks-coding-agent --workspace <your-workspace-url>
 # Run Gemini via Databricks
 databricks-coding-agent --tool gemini --workspace <your-workspace-url>
 
+# Run Claude in Claude Max mode
+databricks-coding-agent --workspace <your-workspace-url> --mode claude_max
+
 # Run Codex via Databricks
 databricks-coding-agent --tool codex --workspace <your-workspace-url>
 ```
