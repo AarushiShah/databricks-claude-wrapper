@@ -1,0 +1,2 @@
+[console_scripts]
+databricks-coding-agent = databricks_coding_agent.cli:main

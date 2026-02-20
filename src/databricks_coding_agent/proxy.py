@@ -115,7 +115,7 @@ def get_databricks_token():
 @app.route('/', methods=['GET'])
 def health():
     """Health check endpoint for proxy readiness."""
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "workspace": DATABRICKS_HOST})
 
 
 @app.route('/v1/messages', methods=['POST'])

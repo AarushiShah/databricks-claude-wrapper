@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -154,6 +155,42 @@ def wait_for_proxy(port, timeout=10):
     return False
 
 
+def find_proxy_port(workspace):
+    """Find a port for the proxy, reusing an existing one if compatible.
+
+    Returns (port, already_running):
+        - If a proxy for the same workspace is already on PROXY_PORT, reuse it.
+        - If PROXY_PORT is free, claim it.
+        - Otherwise, let the OS pick a free port.
+    """
+    # Check if our proxy is already running on the default port
+    try:
+        resp = urllib.request.urlopen(
+            f"http://127.0.0.1:{PROXY_PORT}/", timeout=2
+        )
+        data = json.loads(resp.read())
+        if data.get("status") == "ok" and data.get("workspace") == workspace:
+            return PROXY_PORT, True
+    except Exception:
+        pass
+
+    # Check if the default port is available
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", PROXY_PORT))
+        s.close()
+        return PROXY_PORT, False
+    except OSError:
+        pass
+
+    # Default port taken by something else — pick a free port
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port, False
+
+
 def launch_databricks_mode(workspace, claude_args):
     """Launch Claude Code pointing directly at Databricks' Anthropic endpoint.
 
@@ -190,28 +227,33 @@ def launch_claude_max_mode(workspace, claude_args):
     ensure_cli_installed("claude")
     ensure_databricks_auth(workspace)
 
-    from databricks_coding_agent.proxy import run_proxy
-
     os.environ["DATABRICKS_HOST"] = workspace
 
-    log_dir = os.path.expanduser("~/.databricks-coding-agent")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "proxy.log")
+    port, already_running = find_proxy_port(workspace)
 
-    proxy_thread = threading.Thread(
-        target=run_proxy, args=(workspace, PROXY_PORT, log_path), daemon=True
-    )
-    proxy_thread.start()
+    if already_running:
+        print(f"Reusing existing proxy on port {port}.")
+    else:
+        from databricks_coding_agent.proxy import run_proxy
 
-    print(f"Waiting for proxy on port {PROXY_PORT}...")
-    if not wait_for_proxy(PROXY_PORT):
-        print("ERROR: Proxy failed to start within 10 seconds.")
-        print(f"Check logs at: {log_path}")
-        sys.exit(1)
-    print(f"Proxy is ready. Logs: {log_path}")
+        log_dir = os.path.expanduser("~/.databricks-coding-agent")
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "proxy.log")
+
+        proxy_thread = threading.Thread(
+            target=run_proxy, args=(workspace, port, log_path), daemon=True
+        )
+        proxy_thread.start()
+
+        print(f"Waiting for proxy on port {port}...")
+        if not wait_for_proxy(port):
+            print("ERROR: Proxy failed to start within 10 seconds.")
+            print(f"Check logs at: {log_path}")
+            sys.exit(1)
+        print(f"Proxy is ready. Logs: {log_path}")
 
     env = os.environ.copy()
-    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{PROXY_PORT}"
+    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
     claude_proc = subprocess.Popen(
         ["claude"] + claude_args,
