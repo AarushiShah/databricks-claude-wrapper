@@ -34,7 +34,7 @@ def _setup_logging(log_path):
     file_handler.setFormatter(formatter)
 
     # Proxy logger
-    proxy_logger = logging.getLogger("databricks_proxy")
+    proxy_logger = logging.getLogger("databricks_coding_agent_proxy")
     proxy_logger.setLevel(logging.DEBUG)
     proxy_logger.addHandler(file_handler)
     proxy_logger.propagate = False
@@ -50,7 +50,7 @@ def _setup_logging(log_path):
     app.logger.propagate = False
 
 
-log = logging.getLogger("databricks_proxy")
+log = logging.getLogger("databricks_coding_agent_proxy")
 
 DATABRICKS_HOST = os.environ.get(
     "DATABRICKS_HOST",
@@ -187,13 +187,13 @@ def run_proxy(host, port=8000, log_path=None):
     Args:
         host: Databricks workspace URL to proxy to.
         port: Local port to listen on.
-        log_path: File path for proxy logs. If None, logs to ~/.databricks-claude/proxy.log.
+        log_path: File path for proxy logs. If None, logs to ~/.databricks-coding-agent/proxy.log.
     """
     global DATABRICKS_HOST
     DATABRICKS_HOST = host
 
     if log_path is None:
-        log_dir = os.path.expanduser("~/.databricks-claude")
+        log_dir = os.path.expanduser("~/.databricks-coding-agent")
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, "proxy.log")
 

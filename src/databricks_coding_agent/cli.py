@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CLI entry point for databricks-claude.
+CLI entry point for databricks-coding-agent.
 
 Usage:
-    databricks-claude                                              # launches claude normally
-    databricks-claude --workspace <url> --mode databricks          # direct Databricks endpoint
-    databricks-claude --workspace <url> --mode claude_max          # proxy through Databricks
-    databricks-claude --workspace <url> --mode databricks -p "hi"  # with claude args
+    databricks-coding-agent                                                    # launches claude normally
+    databricks-coding-agent --workspace <url>                                  # Claude via Databricks (default)
+    databricks-coding-agent --workspace <url> --mode claude_max                # Claude proxy mode
+    databricks-coding-agent --tool gemini --workspace <url>                    # Gemini via Databricks
+    databricks-coding-agent --tool codex --workspace <url>                     # Codex via Databricks
+    databricks-coding-agent --tool claude --workspace <url> -p "hi"            # with tool-specific args
 """
 
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -23,6 +26,47 @@ import urllib.error
 
 
 PROXY_PORT = 8000
+
+# Map CLI command names to their npm package names
+NPM_PACKAGES = {
+    "claude": "@anthropic-ai/claude-code",
+    "gemini": "@google/gemini-cli",
+    "codex": "@openai/codex",
+}
+
+
+def ensure_cli_installed(command):
+    """Check if a CLI tool is on PATH; if not, install it via npm.
+
+    Args:
+        command: The CLI command name (e.g. "gemini", "codex").
+    """
+    if shutil.which(command):
+        return
+
+    package = NPM_PACKAGES.get(command)
+    if not package:
+        print(f"ERROR: '{command}' is not installed and no npm package is known for it.")
+        sys.exit(1)
+
+    if not shutil.which("npm"):
+        print(f"ERROR: '{command}' is not installed and npm is not available to install it.")
+        print("Please install Node.js/npm first, then re-run.")
+        sys.exit(1)
+
+    print(f"'{command}' not found. Installing {package} via npm...")
+    try:
+        result = subprocess.run(
+            ["npm", "install", "-g", package],
+            timeout=120,
+        )
+        if result.returncode != 0:
+            print(f"ERROR: Failed to install {package}.")
+            sys.exit(1)
+        print(f"Successfully installed {package}.\n")
+    except subprocess.TimeoutExpired:
+        print(f"ERROR: npm install timed out for {package}.")
+        sys.exit(1)
 
 
 def ensure_databricks_auth(host):
@@ -115,6 +159,7 @@ def launch_databricks_mode(workspace, claude_args):
 
     No proxy needed — just sets env vars and execs claude.
     """
+    ensure_cli_installed("claude")
     ensure_databricks_auth(workspace)
 
     token = get_databricks_token(workspace)
@@ -142,13 +187,14 @@ def launch_claude_max_mode(workspace, claude_args):
     The proxy intercepts Claude's Anthropic API key and forwards it to
     Databricks as x-anthropic-api-key alongside Databricks auth.
     """
+    ensure_cli_installed("claude")
     ensure_databricks_auth(workspace)
 
-    from databricks_claude.proxy import run_proxy
+    from databricks_coding_agent.proxy import run_proxy
 
     os.environ["DATABRICKS_HOST"] = workspace
 
-    log_dir = os.path.expanduser("~/.databricks-claude")
+    log_dir = os.path.expanduser("~/.databricks-coding-agent")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "proxy.log")
 
@@ -181,34 +227,108 @@ def launch_claude_max_mode(workspace, claude_args):
     sys.exit(claude_proc.wait())
 
 
+def launch_gemini_mode(workspace, tool_args):
+    """Launch Gemini CLI routed through a Databricks serving endpoint."""
+    ensure_cli_installed("gemini")
+    ensure_databricks_auth(workspace)
+
+    token = get_databricks_token(workspace)
+    if not token:
+        print("ERROR: Could not obtain Databricks token.")
+        sys.exit(1)
+
+    os.environ["GEMINI_MODEL"] = "databricks-gemini-3-pro"
+    os.environ["GOOGLE_GEMINI_BASE_URL"] = f"{workspace}/serving-endpoints/gemini"
+    os.environ["GEMINI_API_KEY_AUTH_MECHANISM"] = "bearer"
+    os.environ["GEMINI_API_KEY"] = token
+
+    print(f"Launching Gemini CLI in Databricks mode")
+    print(f"  Model:    databricks-gemini-3-pro")
+    print(f"  Endpoint: {workspace}/serving-endpoints/gemini")
+
+    os.execvp("gemini", ["gemini"] + tool_args)
+
+
+def launch_codex_mode(workspace, tool_args):
+    """Launch Codex CLI routed through a Databricks serving endpoint."""
+    ensure_cli_installed("codex")
+    ensure_databricks_auth(workspace)
+
+    token = get_databricks_token(workspace)
+    if not token:
+        print("ERROR: Could not obtain Databricks token.")
+        sys.exit(1)
+
+    os.environ["DATABRICKS_TOKEN"] = token
+
+    # Write ~/.codex/config.toml
+    codex_dir = os.path.expanduser("~/.codex")
+    os.makedirs(codex_dir, exist_ok=True)
+    config_path = os.path.join(codex_dir, "config.toml")
+
+    config_content = f"""\
+profile = "default"
+web_search = "disabled"
+
+[profiles.default]
+model_provider = "proxy"
+model = "databricks-gpt-5-2"
+
+[model_providers.proxy]
+name = "Databricks Proxy"
+base_url = "{workspace}/serving-endpoints"
+env_key = "DATABRICKS_TOKEN"
+wire_api = "responses"
+"""
+
+    with open(config_path, "w") as f:
+        f.write(config_content)
+
+    print(f"Launching Codex CLI in Databricks mode")
+    print(f"  Model:    databricks-gpt-5-2")
+    print(f"  Endpoint: {workspace}/serving-endpoints")
+    print(f"  Config:   {config_path}")
+
+    os.execvp("codex", ["codex"] + tool_args)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        prog="databricks-claude",
-        description="Launch Claude Code, optionally routed through Databricks.",
+        prog="databricks-coding-agent",
+        description="Launch coding agent CLIs (Claude, Gemini, Codex) routed through Databricks.",
+    )
+    parser.add_argument(
+        "--tool",
+        choices=["claude", "gemini", "codex"],
+        default="claude",
+        help="Which coding agent CLI to launch (default: claude).",
     )
     parser.add_argument(
         "--workspace",
         metavar="URL",
-        help="Databricks workspace URL (required with --mode).",
+        help="Databricks workspace URL (required for all tools).",
     )
     parser.add_argument(
         "--mode",
         choices=["databricks", "claude_max"],
-        help="databricks: direct endpoint (no proxy). "
+        help="Claude-specific mode. databricks: direct endpoint (default). "
              "claude_max: local proxy that forwards your Anthropic key to Databricks.",
     )
 
-    args, claude_args = parser.parse_known_args()
+    args, tool_args = parser.parse_known_args()
 
-    # --- No mode/workspace: just exec claude directly ---
-    if not args.mode and not args.workspace:
-        os.execvp("claude", ["claude"] + claude_args)
+    # --- No flags at all: just exec claude directly (backward compat) ---
+    if not args.workspace and not args.mode:
+        ensure_cli_installed("claude")
+        os.execvp("claude", ["claude"] + tool_args)
 
-    # --- Validate: mode and workspace go together ---
-    if args.mode and not args.workspace:
-        parser.error("--workspace is required when --mode is specified.")
-    if args.workspace and not args.mode:
-        parser.error("--mode is required when --workspace is specified.")
+    # --- Validate: workspace is required for all tools ---
+    if not args.workspace:
+        parser.error("--workspace is required.")
+
+    # --- Validate: --mode is only relevant for Claude ---
+    if args.mode and args.tool != "claude":
+        parser.error("--mode is only supported with --tool claude.")
 
     # --- Normalize workspace URL ---
     workspace = args.workspace
@@ -216,10 +336,17 @@ def main():
         workspace = "https://" + workspace
     workspace = workspace.rstrip("/")
 
-    if args.mode == "databricks":
-        launch_databricks_mode(workspace, claude_args)
-    elif args.mode == "claude_max":
-        launch_claude_max_mode(workspace, claude_args)
+    # --- Dispatch ---
+    if args.tool == "claude":
+        mode = args.mode or "databricks"
+        if mode == "databricks":
+            launch_databricks_mode(workspace, tool_args)
+        elif mode == "claude_max":
+            launch_claude_max_mode(workspace, tool_args)
+    elif args.tool == "gemini":
+        launch_gemini_mode(workspace, tool_args)
+    elif args.tool == "codex":
+        launch_codex_mode(workspace, tool_args)
 
 
 if __name__ == "__main__":

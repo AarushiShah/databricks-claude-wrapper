@@ -1,16 +1,34 @@
-# databricks-claude
+# databricks-coding-agent
 
-A CLI wrapper that routes [Claude Code](https://docs.anthropic.com/en/docs/claude-code) through Databricks serving endpoints.
+A CLI wrapper that routes coding agent CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), and [OpenAI Codex](https://github.com/openai/codex) — through Databricks serving endpoints.
+
+## Quick Start
+
+```bash
+# Install
+git clone https://github.com/AarushiShah/databricks-claude-wrapper.git
+cd databricks-claude-wrapper
+pip install .
+
+# Run (Claude via Databricks, the default)
+databricks-coding-agent --workspace <your-workspace-url>
+
+# Run Gemini via Databricks
+databricks-coding-agent --tool gemini --workspace <your-workspace-url>
+
+# Run Codex via Databricks
+databricks-coding-agent --tool codex --workspace <your-workspace-url>
+```
+
+The CLI will auto-install the underlying tool (via npm) if it isn't already on your PATH.
 
 ## Prerequisites
 
 - Python 3.9+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed and available on your PATH
+- Node.js / npm (for auto-installing CLI tools)
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) installed (for OAuth authentication), or a Databricks personal access token
 
 ## Installation
-
-Clone the repository and install with pip:
 
 ```bash
 git clone https://github.com/AarushiShah/databricks-claude-wrapper.git
@@ -18,7 +36,7 @@ cd databricks-claude-wrapper
 pip install .
 ```
 
-This installs the `databricks-claude` command.
+This installs the `databricks-coding-agent` command.
 
 ## Authentication
 
@@ -29,30 +47,63 @@ The CLI authenticates to Databricks in one of two ways (checked in order):
 
 ## Usage
 
-### Databricks mode
+### Supported tools
 
-Route Claude Code directly through a Databricks serving endpoint (no local proxy):
+| Flag | Tool | Model | npm package |
+|---|---|---|---|
+| `--tool claude` (default) | Claude Code | `databricks-claude-opus-4-6` | `@anthropic-ai/claude-code` |
+| `--tool gemini` | Gemini CLI | `databricks-gemini-3-pro` | `@google/gemini-cli` |
+| `--tool codex` | Codex CLI | `databricks-gpt-5-2` | `@openai/codex` |
+
+### Claude (default)
+
+#### Databricks mode (default)
+
+Routes Claude Code directly through a Databricks serving endpoint — no local proxy needed:
 
 ```bash
-databricks-claude --workspace <your-workspace-url> --mode databricks
+databricks-coding-agent --workspace <your-workspace-url>
 ```
 
-### Claude Max mode
+#### Claude Max mode
 
-Route through a local proxy that forwards your Anthropic API key alongside Databricks auth:
+Routes through a local proxy that forwards your Anthropic API key alongside Databricks auth:
 
 ```bash
-databricks-claude --workspace <your-workspace-url> --mode claude_max
+databricks-coding-agent --workspace <your-workspace-url> --mode claude_max
 ```
 
-### Passing arguments to Claude Code
-
-Any extra arguments are forwarded to the underlying `claude` CLI:
+### Gemini
 
 ```bash
-databricks-claude --workspace <your-workspace-url> --mode databricks -p "hello"
+databricks-coding-agent --tool gemini --workspace <your-workspace-url>
+```
+
+### Codex
+
+```bash
+databricks-coding-agent --tool codex --workspace <your-workspace-url>
+```
+
+This writes a config to `~/.codex/config.toml` and launches Codex against the Databricks endpoint.
+
+### Passing arguments to the underlying CLI
+
+Any extra arguments after the flags are forwarded to the selected tool:
+
+```bash
+databricks-coding-agent --workspace <url> -p "hello"
+databricks-coding-agent --tool gemini --workspace <url> -p "hello"
+```
+
+### Running without Databricks
+
+If you omit `--workspace`, the CLI simply launches Claude Code with no Databricks routing (passthrough mode):
+
+```bash
+databricks-coding-agent
 ```
 
 ## Logs
 
-In `claude_max` mode, proxy logs are written to `~/.databricks-claude/proxy.log`.
+In `claude_max` mode, proxy logs are written to `~/.databricks-coding-agent/proxy.log`.

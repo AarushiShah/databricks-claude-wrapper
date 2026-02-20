@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "databricks-claude"
+name = "databricks-coding-agent"
 version = "0.1.0"
-description = "CLI wrapper that proxies Claude Code through Databricks"
+description = "CLI wrapper that routes coding agents through Databricks"
 requires-python = ">=3.9"
 dependencies = [
     "flask>=3.1",
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-databricks-claude = "databricks_claude.cli:main"
+databricks-coding-agent = "databricks_coding_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
